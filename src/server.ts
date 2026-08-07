@@ -10,6 +10,7 @@ import {
 } from "./chain.js";
 import { ReceiptLedger, toCsv, type ReceiptFilter, type RequestMetadata } from "./ledger.js";
 import { signed, verify } from "./sign.js";
+import { ROUTE_SCHEMAS } from "./schemas.js";
 
 /**
  * x402-receipts — receipts and accounting for agent spending.
@@ -38,7 +39,11 @@ const PRICES: Record<string, string> = {
   "GET /export": "$0.01",
 };
 
-app.use(paywall(PRICES, { service: "x402-receipts" }));
+// `schemas` publishes each paid route's request/response contract inside the 402
+// challenge (`accepts[].outputSchema`), so an agent that hits the paywall knows
+// how to call the route and what it will get back without reading the OpenAPI
+// document first. Generated from openapi.json — see src/schemas.ts.
+app.use(paywall(PRICES, { service: "x402-receipts", schemas: ROUTE_SCHEMAS }));
 
 /**
  * Resolve one transaction on either rail. The identifier's own shape decides
