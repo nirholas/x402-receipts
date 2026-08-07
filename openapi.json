@@ -1,0 +1,435 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "x402-receipts",
+    "version": "0.1.0",
+    "description": "Receipts and accounting for agent spending. Resolves Base transaction hashes and Solana transaction signatures into enriched, signed receipts, and exports the ledger as CSV+JSON. Pay in USDC on Base or Solana; the client picks the rail.",
+    "license": { "name": "Apache-2.0", "identifier": "Apache-2.0" },
+    "contact": { "name": "nirholas", "email": "nichxbt@gmail.com", "url": "https://github.com/nirholas/x402-receipts" }
+  },
+  "servers": [{ "url": "http://localhost:4033", "description": "Local dev server" }],
+  "tags": [
+    { "name": "paid", "description": "Routes behind the x402 dual-rail paywall" },
+    { "name": "free", "description": "Free routes (some require X-Admin-Key)" }
+  ],
+  "paths": {
+    "/receipt/{tx}": {
+      "get": {
+        "tags": ["paid"],
+        "operationId": "getReceipt",
+        "summary": "Resolve a Base tx hash or Solana signature into an enriched signed receipt",
+        "description": "Price: $0.001 USDC. The identifier's shape picks the chain — 0x + 64 hex is Base, a base58 signature is Solana. Pass ?network= to override.",
+        "parameters": [
+          {
+            "name": "tx", "in": "path", "required": true,
+            "schema": { "type": "string" },
+            "examples": {
+              "base": { "value": "0x33b7dd081487769518a62d6da79f1e9f2872c02253b0981ac6317fc0c51c65e2" },
+              "solana": { "value": "qMvBwBSdfWTAPyDZi1BDk3Nu68HEVAsz9aMexw3XT7rLobYmpLSg1BBW9Bgvpt1e7A8NUjcuSjAZ5aoYF8cARjj" }
+            }
+          },
+          { "name": "network", "in": "query", "schema": { "type": "string", "enum": ["base", "base-sepolia", "solana", "solana-devnet"] } },
+          { "name": "resource", "in": "query", "schema": { "type": "string" }, "description": "The x402 resource this payment bought" },
+          { "name": "merchant", "in": "query", "schema": { "type": "string" } },
+          { "name": "label", "in": "query", "schema": { "type": "string" } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enriched, HMAC-signed receipt",
+            "headers": { "X-PAYMENT-RESPONSE": { "$ref": "#/components/headers/XPaymentResponse" } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["receipt"],
+                  "properties": {
+                    "receipt": { "$ref": "#/components/schemas/SignedReceipt" },
+                    "paidWith": { "$ref": "#/components/schemas/PaymentReceipt" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The identifier belongs to no recognised chain",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "402": { "$ref": "#/components/responses/PaymentRequired" },
+          "404": {
+            "description": "Transaction not found on the resolved network",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "500": { "$ref": "#/components/responses/ServerError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/export": {
+      "get": {
+        "tags": ["paid"],
+        "operationId": "exportLedger",
+        "summary": "Export the receipt ledger as CSV and JSON in one response",
+        "description": "Price: $0.01 USDC. Returns the signed JSON export (with per-rail and per-merchant totals) alongside RFC 4180 CSV of the same records.",
+        "parameters": [
+          { "name": "rail", "in": "query", "schema": { "type": "string", "enum": ["evm", "solana"] } },
+          { "name": "network", "in": "query", "schema": { "type": "string" } },
+          { "name": "payer", "in": "query", "schema": { "type": "string" } },
+          { "name": "payee", "in": "query", "schema": { "type": "string" } },
+          { "name": "merchant", "in": "query", "schema": { "type": "string" } },
+          { "name": "category", "in": "query", "schema": { "type": "string" } },
+          { "name": "since", "in": "query", "schema": { "type": "string" }, "description": "ISO date/datetime, inclusive" },
+          { "name": "until", "in": "query", "schema": { "type": "string" }, "description": "ISO date/datetime, exclusive" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Signed export plus CSV",
+            "headers": { "X-PAYMENT-RESPONSE": { "$ref": "#/components/headers/XPaymentResponse" } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["export", "csv"],
+                  "properties": {
+                    "export": { "$ref": "#/components/schemas/SignedExport" },
+                    "csv": { "type": "string" },
+                    "digest": { "type": "string" },
+                    "paidWith": { "$ref": "#/components/schemas/PaymentReceipt" }
+                  }
+                }
+              }
+            }
+          },
+          "402": { "$ref": "#/components/responses/PaymentRequired" },
+          "500": { "$ref": "#/components/responses/ServerError" },
+          "502": { "$ref": "#/components/responses/UpstreamError" }
+        }
+      }
+    },
+    "/annotate/{tx}": {
+      "post": {
+        "tags": ["free"],
+        "operationId": "annotateReceipt",
+        "summary": "Attach request metadata to an already-resolved receipt",
+        "security": [{ "adminKey": [] }],
+        "parameters": [{ "name": "tx", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RequestMetadata" },
+              "example": { "resource": "https://api.example.com/report", "category": "data", "label": "run-8812" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated, re-signed receipt",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "receipt": { "$ref": "#/components/schemas/SignedReceipt" } } } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": {
+            "description": "Transaction has not been resolved yet",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/summary": {
+      "get": {
+        "tags": ["free"],
+        "operationId": "getSummary",
+        "summary": "Ledger totals without the rows",
+        "parameters": [
+          { "name": "rail", "in": "query", "schema": { "type": "string", "enum": ["evm", "solana"] } },
+          { "name": "merchant", "in": "query", "schema": { "type": "string" } },
+          { "name": "since", "in": "query", "schema": { "type": "string" } },
+          { "name": "until", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Totals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "summary": { "$ref": "#/components/schemas/LedgerSummary" },
+                    "filter": { "type": "object" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/verify": {
+      "post": {
+        "tags": ["free"],
+        "operationId": "verifySigned",
+        "summary": "Verify the HMAC signature on a receipt or export",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["payload", "signature"],
+                "properties": { "payload": {}, "signature": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification result",
+            "content": { "application/json": { "schema": { "type": "object", "required": ["valid"], "properties": { "valid": { "type": "boolean" } } } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["free"],
+        "operationId": "health",
+        "summary": "Liveness, payment rails, chain resolvers and ledger size",
+        "responses": {
+          "200": {
+            "description": "Service is up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "service": { "type": "string" },
+                    "rails": { "type": "array", "items": { "$ref": "#/components/schemas/Rail" } },
+                    "resolvers": { "type": "object", "properties": { "base": { "type": "string" }, "solana": { "type": "string" } } },
+                    "ledgerSize": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/x402": {
+      "get": {
+        "tags": ["free"],
+        "operationId": "manifest",
+        "summary": "x402 discovery manifest",
+        "responses": {
+          "200": {
+            "description": "Manifest describing paid resources, prices and both payment rails",
+            "content": { "application/json": { "schema": { "type": "object" } } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "adminKey": { "type": "apiKey", "in": "header", "name": "X-Admin-Key" } },
+    "headers": {
+      "XPaymentResponse": {
+        "description": "Base64 JSON settlement receipt: { success, rail, network, transaction, payer, amount, asset, resource }",
+        "schema": { "type": "string" }
+      }
+    },
+    "responses": {
+      "PaymentRequired": {
+        "description": "Payment required. `accepts` lists both rails — pick one, sign it, retry with `X-PAYMENT`.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/PaymentRequiredBody" },
+            "example": {
+              "x402Version": 1,
+              "error": "X-PAYMENT header is required",
+              "accepts": [
+                {
+                  "scheme": "exact", "network": "base-sepolia", "maxAmountRequired": "1000",
+                  "resource": "http://localhost:4033/receipt/0x33b7dd08…",
+                  "description": "x402-receipts: GET /receipt/:tx",
+                  "mimeType": "application/json",
+                  "payTo": "0x40252CFDF8B20Ed757D61ff157719F33Ec332402",
+                  "maxTimeoutSeconds": 60,
+                  "asset": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+                  "extra": { "name": "USDC", "version": "2" }
+                },
+                {
+                  "scheme": "exact", "network": "solana", "maxAmountRequired": "1000",
+                  "resource": "http://localhost:4033/receipt/0x33b7dd08…",
+                  "description": "x402-receipts: GET /receipt/:tx",
+                  "mimeType": "application/json",
+                  "payTo": "WwwuGbqHrwF5RG89KhUbmRWEvjnRH9k5kVM5p7T3WwW",
+                  "maxTimeoutSeconds": 60,
+                  "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                  "extra": { "name": "USD Coin", "decimals": 6, "feePayer": "2wKupLR9q6wXYppw8Gr2NvWxKBUqm4PPJKkQfoxHDBg4", "amount": "1000" }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Malformed request",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Unauthorized": {
+        "description": "Missing or wrong X-Admin-Key",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "ServerError": {
+        "description": "Server misconfiguration (e.g. no valid payTo on either rail)",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "UpstreamError": {
+        "description": "Chain RPC or payment facilitator unreachable",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    },
+    "schemas": {
+      "PaymentRequirements": {
+        "type": "object",
+        "required": ["scheme", "network", "maxAmountRequired", "resource", "payTo", "asset"],
+        "properties": {
+          "scheme": { "type": "string", "const": "exact" },
+          "network": { "type": "string", "examples": ["base-sepolia", "base", "solana", "solana-devnet"] },
+          "maxAmountRequired": { "type": "string", "description": "USDC atomic units (6 decimals)" },
+          "resource": { "type": "string", "format": "uri" },
+          "description": { "type": "string" },
+          "mimeType": { "type": "string" },
+          "payTo": { "type": "string" },
+          "maxTimeoutSeconds": { "type": "integer" },
+          "asset": { "type": "string" },
+          "extra": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "PaymentRequiredBody": {
+        "type": "object",
+        "required": ["x402Version", "accepts"],
+        "properties": {
+          "x402Version": { "type": "integer", "const": 1 },
+          "error": { "type": "string" },
+          "accepts": { "type": "array", "items": { "$ref": "#/components/schemas/PaymentRequirements" }, "minItems": 1 }
+        }
+      },
+      "PaymentReceipt": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "rail": { "type": "string", "enum": ["evm", "solana"] },
+          "network": { "type": "string" },
+          "transaction": { "type": "string" },
+          "payer": { "type": "string" },
+          "amount": { "type": "string" },
+          "asset": { "type": "string" },
+          "resource": { "type": "string" }
+        }
+      },
+      "Rail": {
+        "type": "object",
+        "properties": {
+          "rail": { "type": "string", "enum": ["evm", "solana"] },
+          "network": { "type": "string" },
+          "payTo": { "type": "string" },
+          "facilitator": { "type": "string", "format": "uri" }
+        }
+      },
+      "TokenTransfer": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "amount": { "type": "number" },
+          "amountRaw": { "type": "string" },
+          "asset": { "type": "string" },
+          "symbol": { "type": "string" },
+          "decimals": { "type": "integer" }
+        }
+      },
+      "RequestMetadata": {
+        "type": "object",
+        "description": "What the agent knows and the chain doesn't.",
+        "properties": {
+          "resource": { "type": "string" },
+          "merchant": { "type": "string" },
+          "label": { "type": "string" },
+          "category": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "ReceiptRecord": {
+        "type": "object",
+        "properties": {
+          "transaction": { "type": "string" },
+          "rail": { "type": "string", "enum": ["evm", "solana"] },
+          "network": { "type": "string" },
+          "status": { "type": "string", "enum": ["success", "failed"] },
+          "timestamp": { "type": ["string", "null"], "format": "date-time" },
+          "payer": { "type": ["string", "null"] },
+          "payee": { "type": ["string", "null"] },
+          "amount": { "type": ["number", "null"] },
+          "amountRaw": { "type": ["string", "null"] },
+          "asset": { "type": ["string", "null"] },
+          "symbol": { "type": ["string", "null"] },
+          "feeNative": { "type": ["number", "null"] },
+          "block": { "type": ["number", "null"] },
+          "explorerUrl": { "type": "string", "format": "uri" },
+          "transfers": { "type": "array", "items": { "$ref": "#/components/schemas/TokenTransfer" } },
+          "metadata": { "$ref": "#/components/schemas/RequestMetadata" },
+          "resolvedAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SignedReceipt": {
+        "type": "object",
+        "properties": {
+          "payload": { "$ref": "#/components/schemas/ReceiptRecord" },
+          "signature": { "type": "string" },
+          "algorithm": { "type": "string", "const": "HMAC-SHA256" }
+        }
+      },
+      "LedgerSummary": {
+        "type": "object",
+        "properties": {
+          "count": { "type": "integer" },
+          "totalUsd": { "type": "number", "description": "Successful USDC legs only" },
+          "failedCount": { "type": "integer" },
+          "firstAt": { "type": ["string", "null"] },
+          "lastAt": { "type": ["string", "null"] },
+          "byRail": { "type": "object", "additionalProperties": { "type": "object", "properties": { "count": { "type": "integer" }, "totalUsd": { "type": "number" } } } },
+          "byMerchant": { "type": "object", "additionalProperties": { "type": "object", "properties": { "count": { "type": "integer" }, "totalUsd": { "type": "number" } } } }
+        }
+      },
+      "SignedExport": {
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "generatedAt": { "type": "string", "format": "date-time" },
+              "filter": { "type": "object" },
+              "summary": { "$ref": "#/components/schemas/LedgerSummary" },
+              "records": { "type": "array", "items": { "$ref": "#/components/schemas/ReceiptRecord" } }
+            }
+          },
+          "signature": { "type": "string" },
+          "algorithm": { "type": "string", "const": "HMAC-SHA256" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "message": { "type": "string" },
+          "hint": { "type": "string" },
+          "transaction": { "type": "string" },
+          "network": { "type": "string" }
+        }
+      }
+    }
+  }
+}

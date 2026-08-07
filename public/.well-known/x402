@@ -1,0 +1,147 @@
+{
+  "x402Version": 1,
+  "name": "x402-receipts",
+  "description": "Receipts and accounting for agent spending — enriched on-chain receipt lookups (Base tx hashes and Solana transaction signatures) plus CSV+JSON ledger exports. Pay in USDC on Base or Solana; your client picks the rail.",
+  "contact": "nichxbt@gmail.com",
+  "repository": "https://github.com/nirholas/x402-receipts",
+  "documentation": "https://nirholas.github.io/x402-receipts/",
+  "skill": "https://raw.githubusercontent.com/nirholas/x402-receipts/main/skill.md",
+  "rails": [
+    {
+      "rail": "evm",
+      "network": "base-sepolia",
+      "asset": "USDC",
+      "assetAddress": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "payTo": "0x40252CFDF8B20Ed757D61ff157719F33Ec332402",
+      "facilitator": "https://x402.org/facilitator"
+    },
+    {
+      "rail": "solana",
+      "network": "solana",
+      "asset": "USDC",
+      "assetAddress": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "payTo": "WwwuGbqHrwF5RG89KhUbmRWEvjnRH9k5kVM5p7T3WwW",
+      "facilitator": "https://facilitator.payai.network"
+    }
+  ],
+  "resources": [
+    {
+      "resource": "GET /receipt/:tx",
+      "description": "Resolve a Base transaction hash OR a Solana transaction signature into an enriched, HMAC-signed receipt: payer, payee, amount, asset, block time, fee, every token transfer, and any request metadata you attach. The identifier's shape picks the chain.",
+      "price": "$0.001",
+      "networks": ["base-sepolia", "solana"],
+      "asset": "USDC",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tx": { "type": "string", "description": "Path param: 0x-prefixed 32-byte hash (Base) or base58 signature (Solana)" },
+          "network": { "type": "string", "enum": ["base", "base-sepolia", "solana", "solana-devnet"], "description": "Query param. Optional — inferred from the identifier's shape." },
+          "resource": { "type": "string", "description": "Query param. The x402 resource this payment bought." },
+          "merchant": { "type": "string", "description": "Query param. Merchant host; derived from `resource` when omitted." },
+          "label": { "type": "string", "description": "Query param. Free-form: which agent, which run." },
+          "category": { "type": "string", "description": "Query param. Accounting category." }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["receipt"],
+        "properties": {
+          "receipt": {
+            "type": "object",
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "transaction": { "type": "string" },
+                  "rail": { "type": "string", "enum": ["evm", "solana"] },
+                  "network": { "type": "string" },
+                  "status": { "type": "string", "enum": ["success", "failed"] },
+                  "timestamp": { "type": "string", "format": "date-time" },
+                  "payer": { "type": "string" },
+                  "payee": { "type": "string" },
+                  "amount": { "type": "number" },
+                  "amountRaw": { "type": "string" },
+                  "asset": { "type": "string" },
+                  "symbol": { "type": "string" },
+                  "feeNative": { "type": "number" },
+                  "block": { "type": "number" },
+                  "explorerUrl": { "type": "string", "format": "uri" },
+                  "transfers": { "type": "array", "items": { "type": "object" } },
+                  "metadata": { "type": "object" }
+                }
+              },
+              "signature": { "type": "string" },
+              "algorithm": { "type": "string", "enum": ["HMAC-SHA256"] }
+            }
+          },
+          "paidWith": { "type": "object" }
+        }
+      }
+    },
+    {
+      "resource": "GET /export",
+      "description": "The full receipt ledger in BOTH formats in one response: a signed JSON export with per-rail and per-merchant totals, plus RFC 4180 CSV ready for accounting software. Filterable by rail, network, payer, payee, merchant, category and date range.",
+      "price": "$0.01",
+      "networks": ["base-sepolia", "solana"],
+      "asset": "USDC",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "rail": { "type": "string", "enum": ["evm", "solana"] },
+          "network": { "type": "string" },
+          "payer": { "type": "string" },
+          "payee": { "type": "string" },
+          "merchant": { "type": "string" },
+          "category": { "type": "string" },
+          "since": { "type": "string", "description": "ISO date/datetime, inclusive" },
+          "until": { "type": "string", "description": "ISO date/datetime, exclusive" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "required": ["export", "csv"],
+        "properties": {
+          "export": {
+            "type": "object",
+            "properties": {
+              "payload": {
+                "type": "object",
+                "properties": {
+                  "generatedAt": { "type": "string", "format": "date-time" },
+                  "filter": { "type": "object" },
+                  "summary": {
+                    "type": "object",
+                    "properties": {
+                      "count": { "type": "number" },
+                      "totalUsd": { "type": "number" },
+                      "failedCount": { "type": "number" },
+                      "firstAt": { "type": "string" },
+                      "lastAt": { "type": "string" },
+                      "byRail": { "type": "object" },
+                      "byMerchant": { "type": "object" }
+                    }
+                  },
+                  "records": { "type": "array", "items": { "type": "object" } }
+                }
+              },
+              "signature": { "type": "string" },
+              "algorithm": { "type": "string", "enum": ["HMAC-SHA256"] }
+            }
+          },
+          "csv": { "type": "string", "description": "RFC 4180 CSV of the same records" },
+          "digest": { "type": "string", "description": "HMAC over the exported record set" }
+        }
+      }
+    }
+  ],
+  "free": [
+    { "resource": "GET /summary", "description": "Ledger totals without the rows — decide whether the export is worth buying" },
+    { "resource": "POST /annotate/:tx", "description": "Attach resource/merchant/label/category metadata to a resolved receipt (requires X-Admin-Key)" },
+    { "resource": "POST /verify", "description": "Verify the HMAC signature on a receipt or export" },
+    { "resource": "GET /health", "description": "Liveness, payment rails, chain resolvers and ledger size" }
+  ],
+  "library": {
+    "npm": "x402-receipts",
+    "exports": ["resolveTransaction", "detectRail", "ReceiptLedger", "toCsv", "paywall", "sign", "verify"]
+  }
+}

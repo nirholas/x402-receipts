@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>x402-receipts — receipts and accounting for x402 agents</title>
+<meta name="description" content="Enriched on-chain receipt lookups for Base transaction hashes and Solana transaction signatures, plus CSV+JSON ledger exports. Pay in USDC on Base or Solana.">
+<style>
+  :root {
+    --accent: #0052ff;
+    --solana: #14f195;
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --fg: #1a1a1a;
+    --fg-soft: #57606a;
+    --border: #d8dee4;
+    --code-bg: #f6f8fa;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --bg-soft: #161b22;
+      --fg: #e6edf3;
+      --fg-soft: #9198a1;
+      --border: #30363d;
+      --code-bg: #161b22;
+      --accent: #4d8bff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { padding: 72px 0 48px; border-bottom: 1px solid var(--border); }
+  .eyebrow {
+    display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 14px;
+  }
+  h1 { font-size: clamp(32px, 6vw, 46px); line-height: 1.1; margin: 0 0 14px; letter-spacing: -.02em; }
+  .tagline { font-size: clamp(17px, 2.6vw, 21px); color: var(--fg-soft); margin: 0 0 28px; max-width: 640px; }
+  .rails { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 26px; }
+  .pill {
+    font-size: 13px; padding: 4px 11px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--bg-soft); color: var(--fg-soft);
+  }
+  .pill strong { color: var(--fg); font-weight: 600; }
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .btn {
+    display: inline-block; padding: 9px 18px; border-radius: var(--radius); font-weight: 600; font-size: 15px;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  }
+  .btn:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn.ghost { background: transparent; color: var(--fg); border-color: var(--border); }
+  h2 { font-size: 24px; margin: 52px 0 14px; letter-spacing: -.01em; }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  p { margin: 0 0 14px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.55;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: .92em; }
+  p code, li code, td code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 20px; font-size: 14.5px; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-soft); font-weight: 600; }
+  tbody tr:last-child td { border-bottom: none; }
+  .price { font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .flow { margin: 20px 0 28px; }
+  .flow svg { width: 100%; height: auto; max-width: 720px; display: block; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 18px 0 8px; }
+  .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; background: var(--bg-soft); }
+  .card h3 { margin: 0 0 5px; font-size: 15px; }
+  .card p { margin: 0; font-size: 14px; color: var(--fg-soft); }
+  .warn {
+    border: 1px solid #d1242f; border-left-width: 4px; border-radius: var(--radius);
+    background: rgba(209, 36, 47, .06); padding: 14px 18px; margin: 22px 0;
+  }
+  .warn strong { color: #d1242f; }
+  @media (prefers-color-scheme: dark) { .warn { background: rgba(248, 81, 73, .1); border-color: #f85149; } .warn strong { color: #ff7b72; } }
+  footer { margin: 64px 0 40px; padding-top: 22px; border-top: 1px solid var(--border); color: var(--fg-soft); font-size: 14px; }
+  footer a { color: var(--fg-soft); text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">x402 Suite · infrastructure</span>
+    <h1>x402-receipts</h1>
+    <p class="tagline">Receipts and accounting for agent spending. Turn a bare settlement id — a Base transaction hash <em>or</em> a Solana transaction signature — into a signed receipt an accountant will accept, and export the whole book as CSV.</p>
+    <div class="rails">
+      <span class="pill">Pay in <strong>USDC on Base</strong></span>
+      <span class="pill">or <strong>USDC on Solana</strong></span>
+      <span class="pill">Resolves <strong>both chains</strong></span>
+    </div>
+    <pre><code>npm install x402-receipts</code></pre>
+    <div class="cta">
+      <a class="btn" href="https://github.com/nirholas/x402-receipts">GitHub</a>
+      <a class="btn ghost" href="./tutorial.md">Tutorial</a>
+      <a class="btn ghost" href="./api.md">API reference</a>
+      <a class="btn ghost" href="./agents.md">For agents</a>
+    </div>
+  </header>
+
+  <h2>The problem</h2>
+  <p>An x402 payment succeeds and your agent gets this back:</p>
+  <pre><code>X-PAYMENT-RESPONSE: { "success": true, "network": "base-sepolia", "transaction": "0x33b7dd08…" }</code></pre>
+  <p>That is not a receipt. No amount, no counterparty, no timestamp, no idea what was bought. At month end you have a few thousand of them across two chains and a finance function that would like a CSV.</p>
+
+  <h2>Pricing</h2>
+  <table>
+    <thead><tr><th>Route</th><th>Price</th><th>What you get back</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /receipt/:tx</code></td><td class="price">$0.001</td><td>Enriched, signed receipt: payer, payee, amount, asset, block time, fee, every transfer, your metadata</td></tr>
+      <tr><td><code>GET /export</code></td><td class="price">$0.01</td><td>The full ledger as <strong>CSV and JSON in one response</strong>, with per-rail and per-merchant totals</td></tr>
+      <tr><td><code>POST /annotate/:tx</code></td><td class="price">free*</td><td>Attach resource / merchant / label / category</td></tr>
+      <tr><td><code>GET /summary</code></td><td class="price">free</td><td>Totals without the rows — decide whether the export is worth buying</td></tr>
+      <tr><td><code>POST /verify</code></td><td class="price">free</td><td>Signature check on any receipt or export</td></tr>
+    </tbody>
+  </table>
+  <p><em>*requires <code>X-Admin-Key</code>.</em> The export returns both formats deliberately: CSV is what accounting software imports, JSON is what the next agent parses. Charging twice for the same rows would be a worse product.</p>
+
+  <h2>Two chains, one lookup</h2>
+  <p><strong>The identifier's shape picks the chain.</strong> No flag, no guessing:</p>
+  <pre><code># Base: 0x + 64 hex
+curl "localhost:4033/receipt/0x33b7dd081487769518a62d6da79f1e9f2872c02253b0981ac6317fc0c51c65e2"
+
+# Solana: base58 signature
+curl "localhost:4033/receipt/qMvBwBSdfWTAPyDZi1BDk3Nu68HEVAsz9aMexw3XT7rLobYmpLSg1BBW9Bgvpt1e7A8NUjcuSjAZ5aoYF8cARjj"</code></pre>
+  <p>Both come back in the same shape. Getting there takes genuinely different work:</p>
+  <div class="cards">
+    <div class="card"><h3>Base</h3><p>Read the transaction receipt and decode every <code>Transfer(address,address,uint256)</code> log. The event states sender, recipient and amount directly.</p></div>
+    <div class="card"><h3>Solana</h3><p>No transfer event exists. Diff <code>preTokenBalances</code> against <code>postTokenBalances</code> per (owner, mint) — negative deltas are senders, positive ones receivers. Survives <code>transferChecked</code>, CPI wrappers and multi-hop routes, where instruction parsing does not.</p></div>
+  </div>
+  <p>One Solana subtlety: on x402 payments the <strong>fee payer is the facilitator's sponsor</strong>, not the buyer — that is what lets a buyer pay with USDC and no SOL. Read <code>payer</code> from the transfer, never the fee payer.</p>
+
+  <h2>Use it as a library</h2>
+  <pre><code>import { resolveTransaction, ReceiptLedger, toCsv } from "x402-receipts";
+
+const ledger = new ReceiptLedger({ file: "data/receipts.json" });
+
+const receipt = await resolveTransaction("0x33b7dd08…");     // Base
+const solana  = await resolveTransaction("qMvBwBSd…");       // Solana
+
+ledger.record(receipt, { resource: "https://api.example.com/report", category: "data" });
+ledger.record(solana,  { resource: "https://api.example.com/report", category: "data" });
+
+ledger.summary();
+// { count: 2, totalUsd: 0.02, byRail: { evm: {…}, solana: {…} }, … }
+
+toCsv(ledger.list({ since: "2026-08-01" }));</code></pre>
+
+  <h2>The flow</h2>
+  <div class="flow">
+    <svg viewBox="0 0 720 170" role="img" aria-label="Pay on either rail, then the service resolves the transaction against Base or Solana RPC and returns a signed receipt">
+      <defs>
+        <marker id="ar3" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+          <path d="M0,0 L8,3 L0,6 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <g fill="none" stroke="currentColor" stroke-width="1.5" opacity=".85" marker-end="url(#ar3)">
+        <path d="M104 40 H244"/>
+        <path d="M244 84 H108"/>
+        <path d="M104 128 H244"/>
+        <path d="M356 118 H452"/>
+        <path d="M356 140 H452"/>
+        <path d="M568 128 H656"/>
+      </g>
+      <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" fill="currentColor">
+        <rect x="8" y="22" width="94" height="124" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".55"/>
+        <text x="55" y="88" text-anchor="middle" font-size="12.5">agent</text>
+        <text x="174" y="33" text-anchor="middle" font-size="11">GET /receipt/…</text>
+        <text x="176" y="78" text-anchor="middle" font-size="11">402 accepts[2]</text>
+        <text x="174" y="121" text-anchor="middle" font-size="11">+ X-PAYMENT</text>
+        <rect x="248" y="104" width="106" height="48" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".55"/>
+        <text x="301" y="126" text-anchor="middle" font-size="11.5">verify+settle</text>
+        <text x="301" y="142" text-anchor="middle" font-size="11.5">then resolve</text>
+        <text x="510" y="115" text-anchor="middle" font-size="10.5" opacity=".8">Base RPC</text>
+        <text x="510" y="145" text-anchor="middle" font-size="10.5" opacity=".8">Solana RPC</text>
+        <rect x="660" y="110" width="54" height="36" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".55"/>
+        <text x="687" y="132" text-anchor="middle" font-size="11">receipt</text>
+      </g>
+    </svg>
+  </div>
+  <p>Pleasingly circular: the <code>transaction</code> in your <code>X-PAYMENT-RESPONSE</code> is exactly what you would feed back into <code>GET /receipt/:tx</code>.</p>
+
+  <h2>No keys, no fixtures</h2>
+  <p>Every receipt comes from a live chain read through <strong>public, keyless RPC</strong> — Base via viem, Solana via <code>api.mainnet-beta.solana.com</code>. Set <code>BASE_RPC_URL</code> / <code>SOLANA_RPC_URL</code> to a dedicated provider before you depend on it; the public endpoints are rate-limited.</p>
+
+  <h2>Docs</h2>
+  <div class="cards">
+    <a class="card" href="./tutorial.md"><h3>Tutorial →</h3><p>Run it, resolve a real Base tx and a real Solana signature, buy the export.</p></a>
+    <a class="card" href="./api.md"><h3>API reference →</h3><p>Every route and every library export, with schemas and error cases.</p></a>
+    <a class="card" href="./agents.md"><h3>For AI agents →</h3><p>Discovery, both rails, MCP integration, and where to get listed.</p></a>
+    <a class="card" href="https://github.com/nirholas/x402-receipts/blob/main/skill.md"><h3>skill.md →</h3><p>The agent-facing contract in one file.</p></a>
+    <a class="card" href="https://github.com/nirholas/x402-receipts/blob/main/public/.well-known/x402"><h3>.well-known/x402 →</h3><p>Machine-readable manifest for x402 indexes.</p></a>
+    <a class="card" href="https://github.com/nirholas/x402-receipts/blob/main/openapi.json"><h3>OpenAPI 3.1 →</h3><p>Including the 402 response and PaymentRequirements schema.</p></a>
+  </div>
+
+  <footer>
+    <p>Part of the <a href="https://github.com/nirholas/x402-suite">x402 Suite</a> · Apache-2.0 · <a href="mailto:nichxbt@gmail.com">nichxbt@gmail.com</a></p>
+  </footer>
+
+</div>
+</body>
+</html>
