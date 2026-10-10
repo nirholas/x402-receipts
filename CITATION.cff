@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: "x402-receipts"
+abstract: "Receipts and accounting for agent spending: enriched on-chain receipt lookups and ledger exports"
+license: Apache-2.0
+repository-code: "https://github.com/nirholas/x402-receipts"
+url: "https://three.ws"
+authors:
+  - name: three.ws
+    website: "https://three.ws"
