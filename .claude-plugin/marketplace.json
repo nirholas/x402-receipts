@@ -1,0 +1,22 @@
+{
+  "name": "x402-receipts",
+  "owner": {
+    "name": "nirholas"
+  },
+  "description": "Run the x402-receipts service to resolve Base and Solana payment transactions into signed receipts and export the ledger, paid via x402.",
+  "plugins": [
+    {
+      "name": "x402-receipts",
+      "source": "./plugins/x402-receipts",
+      "description": "Run the x402-receipts service to resolve Base and Solana payment transactions into signed receipts and export the ledger, paid via x402.",
+      "category": "finance",
+      "tags": [
+        "x402",
+        "receipts",
+        "accounting",
+        "base",
+        "solana"
+      ]
+    }
+  ]
+}
